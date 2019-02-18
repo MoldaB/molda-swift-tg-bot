@@ -222,7 +222,7 @@ extension SuggestionBot
     ///   - movie: given movie
     ///   - user: user object
     /// - Throws: some error if bot failed saving
-    private func showMessage(for movie: MovieResult, for user: User, in chat: Chat) throws {
+    private func showMessage(for movie: MovieResult, after message: Message? = nil, for user: User, in chat: Chat) throws {
         // setup keys and keyboard markup
         let thisIsItButton = InlineKeyboardButton(text: "this is it".capitalized,
                                                   callbackData: "this_is_it_movie")
@@ -243,17 +243,32 @@ extension SuggestionBot
         if movie != results.first {
             keys.append(previousButton)
         }
-        
-        let keyboard = ReplyMarkup.inlineKeyboardMarkup(.init(inlineKeyboard: [[thisIsItButton], [nextButton], [previousButton]]))
+        let inlineMarkup = InlineKeyboardMarkup(inlineKeyboard: keys.map { [$0] })
+        let keyboard = ReplyMarkup.inlineKeyboardMarkup(inlineMarkup)
         // setup message text
         let messageText = ["Is this the movie you ment?","name - \(movie.name)","Year - \(movie.year)"].joined(separator: "\n")
-        // setup Photo message params
-        let photoParams = Bot.SendPhotoParams(chatId: .chat(chat.id),
-                                              photo: .url(movie.poster),
-                                              caption: messageText,
-                                              replyMarkup: keyboard)
-        // send image
-        try bot.sendPhoto(params: photoParams)
+        if let message = message { // edits previous message
+//            let photoParams = Bot.SendPhotoParams(chatId: .chat(chat.id),
+//                                                  photo: .url(movie.poster),
+//                                                  caption: messageText,
+//                                                  replyMarkup: keyboard)
+            // send image
+//            try bot.sendPhoto(params: photoParams)
+            let media = InputMedia.inputMediaPhoto(.init(type: "photo", media: movie.poster, caption: messageText))
+            let params = Bot.EditMessageMediaParams(chatId: .chat(message.chat.id),
+                                                    messageId: message.messageId,
+                                                    media: media,
+                                                    replyMarkup: inlineMarkup)
+            try bot.editMessageMedia(params: params)
+        } else { // send new message
+            // setup Photo message params
+            let photoParams = Bot.SendPhotoParams(chatId: .chat(chat.id),
+                                                  photo: .url(movie.poster),
+                                                  caption: messageText,
+                                                  replyMarkup: keyboard)
+            // send image
+            try bot.sendPhoto(params: photoParams)
+        }
     }
     
     private func sendNoMoviesFound(for user: User, in chat: Chat) throws {
@@ -294,7 +309,7 @@ extension SuggestionBot
         guard let index = userStates[user.id]?.presentedMovieResultIndex,
             let movie = userStates[user.id]?.movieResults?[index + 1] else { return }
         userStates[user.id]?.presentedMovieResultIndex = index + 1
-        try showMessage(for: movie, for: user, in: message.chat)
+        try showMessage(for: movie, after: message, for: user, in: message.chat)
     }
     
     private func handlePreviousQueryUpdate(_ update: Update, in context: BotContext?) throws {
@@ -306,6 +321,6 @@ extension SuggestionBot
         guard let index = userStates[user.id]?.presentedMovieResultIndex,
             let movie = userStates[user.id]?.movieResults?[index - 1] else { return }
         userStates[user.id]?.presentedMovieResultIndex = index - 1
-        try showMessage(for: movie, for: user, in: message.chat)
+        try showMessage(for: movie, after: message, for: user, in: message.chat)
     }
 }
