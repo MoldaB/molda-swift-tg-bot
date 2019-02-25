@@ -140,11 +140,8 @@ extension SuggestionBot {
     }
     
     func recivedMessageHandlerUpdate(_ update: Update, in context: BotContext?) throws {
-        guard let message = update.message,
-            let user = message.from,
-            let _ = userStates[user.id] else { return }
-        let params = Bot.SendMessageParams(chatId: .chat(message.chat.id), text: message.text!)
-        try bot.sendMessage(params: params)
+        guard let message = update.message else { return }
+        try bot.sendMessage(params: .init(chatId: .chat(message.chat.id) , text: "מה קרה"))
     }
     
     /// handles suggestion command message for sending user in bot context
@@ -155,7 +152,16 @@ extension SuggestionBot {
     ///   - context: BotContext or whatever
     /// - Throws: exeption if something else throws exception
     private func handleStartCommand(with message: Message, for user: User, in context: BotContext?) throws {
-        let params = Bot.SendMessageParams(chatId: .chat(message.chat.id),
+        try sendStartupMessage(in: .chat(message.chat.id))
+    }
+    
+
+    /// Sends the message for all available commands
+    ///
+    /// - Parameter chatId: in chat
+    /// - Throws: if message fails to be sent
+    private func sendStartupMessage(in chatId: ChatId) throws {
+        let params = Bot.SendMessageParams(chatId: chatId,
                                            text: "Try new commands\n/movie for suggesting movies,\n/series for suggesting searies,\n/recipes for suggesting food,\n/music for suggesting a new song\nenjoy.")
         try bot.sendMessage(params: params)
     }
@@ -198,7 +204,7 @@ extension SuggestionBot
     ///   - context: <#context description#>
     private func handleMovieResults(_ results: [MovieResult], for user: User, in chat: Chat) {
         userStates[user.id]?.movieResults = results
-        userStates[user.id]?.location = .movie
+        userStates[user.id]?.location = [.movie]
         guard let firstMovie = results.first else {
             NSLog("No movie was found - sending message to user")
             do {
@@ -230,6 +236,8 @@ extension SuggestionBot
                                               callbackData: "next_movie")
         let previousButton = InlineKeyboardButton(text: "previous".capitalized,
                                                   callbackData: "previous_movie")
+        let cancelButton = InlineKeyboardButton(text: "cancel".capitalized,
+                                                callbackData: "cancel")
         // use relevant keys
         var keys = [thisIsItButton]
         guard let results = userStates[user.id]?.movieResults else {
@@ -243,17 +251,11 @@ extension SuggestionBot
         if movie != results.first {
             keys.append(previousButton)
         }
+        keys.append(cancelButton)
         let inlineMarkup = InlineKeyboardMarkup(inlineKeyboard: keys.map { [$0] })
         let keyboard = ReplyMarkup.inlineKeyboardMarkup(inlineMarkup)
-        // setup message text
         let messageText = ["Is this the movie you ment?","name - \(movie.name)","Year - \(movie.year)"].joined(separator: "\n")
         if let message = message { // edits previous message
-//            let photoParams = Bot.SendPhotoParams(chatId: .chat(chat.id),
-//                                                  photo: .url(movie.poster),
-//                                                  caption: messageText,
-//                                                  replyMarkup: keyboard)
-            // send image
-//            try bot.sendPhoto(params: photoParams)
             let media = InputMedia.inputMediaPhoto(.init(type: "photo", media: movie.poster, caption: messageText))
             let params = Bot.EditMessageMediaParams(chatId: .chat(message.chat.id),
                                                     messageId: message.messageId,
@@ -261,7 +263,7 @@ extension SuggestionBot
                                                     replyMarkup: inlineMarkup)
             try bot.editMessageMedia(params: params)
         } else { // send new message
-            // setup Photo message params
+            userStates[user.id]?.location.following(.name)
             let photoParams = Bot.SendPhotoParams(chatId: .chat(chat.id),
                                                   photo: .url(movie.poster),
                                                   caption: messageText,
@@ -278,33 +280,101 @@ extension SuggestionBot
     
     // MARK: CallbackQueryHandlers
     private func setupMovieCallbacksHandler() {
-        let thisIsItCallbackQueryHandler = CallbackQueryHandler(pattern: "this_is_it_movie", callback: handleThisIsItQueryUpdate)
-        dispatcher?.add(handler: thisIsItCallbackQueryHandler)
+        let movieCallbackQueryHandler = CallbackQueryHandler(pattern: ".+_movie", callback: handleMovieQueryUpdate)
+        dispatcher?.add(handler: movieCallbackQueryHandler)
         
-        let nextCallbackQueryHandler = CallbackQueryHandler(pattern: "next_movie", callback: handleNextItQueryUpdate)
-        dispatcher?.add(handler: nextCallbackQueryHandler)
+//        let rateCallbackQueryHandler = CallbackQueryHandler(pattern: "^rate:\\d", callback: handleRatePickedQueryUpdate)
+//        dispatcher?.add(handler: rateCallbackQueryHandler)
         
-        let previousCallbackQueryHandler = CallbackQueryHandler(pattern: "previous_movie", callback: handlePreviousQueryUpdate)
-        dispatcher?.add(handler: previousCallbackQueryHandler)
+        let cancelCallbackQueryHandler = CallbackQueryHandler(pattern: "cancel", callback: handleCancelQueryUpdate)
+        dispatcher?.add(handler: cancelCallbackQueryHandler)
     }
     
-    private func handleThisIsItQueryUpdate(_ update: Update, in context: BotContext?) throws {
-        guard let message = update.callbackQuery?.message,
-            let user = update.callbackQuery?.from else { return }
-        // get current presented movie index
-        guard let presentedMovieResultIndex = userStates[user.id]?.presentedMovieResultIndex else { return }
-        // get current presented movie
-        guard let movie = userStates[user.id]?.movieResults?[presentedMovieResultIndex] else { return }
-        // send picked 'movie name' message to user
-        let params = Bot.SendMessageParams(chatId: .chat(message.chat.id), text: "You picked - \(movie.name)")
-        try bot.sendMessage(params: params)
+    enum MovieQueryKeys
+    {
+        case thisIsIt
+        case next
+        case previous
+        case rate
+        case suggest
+        
+        init?(rawValue: String) {
+            guard !rawValue.contains("rate") else {
+                self = .rate
+                return
+            }
+            switch rawValue {
+            case "this_is_it": self = .thisIsIt
+            case "next": self = .next
+            case "previous": self = .previous
+            case "suggest": self = .suggest
+            default:
+                return nil
+            }
+        }
     }
     
-    private func handleNextItQueryUpdate(_ update: Update, in context: BotContext?) throws {
+    enum MovieError: Swift.Error
+    {
+        case invalidDataQuery
+    }
+    
+    private func handleCancelQueryUpdate(_ update: Update, in context: BotContext?) throws {
+        guard
+            let message = update.callbackQuery?.message,
+            let user = message.from else {
+            throw MovieError.invalidDataQuery
+        }
+        userStates.removeValue(forKey: user.id)
+        let params = Bot.DeleteMessageParams(chatId: .chat(message.chat.id), messageId: message.messageId)
+        try bot.deleteMessage(params: params)
+        try sendStartupMessage(in: .chat(message.chat.id))
+    }
+    
+    // MARK: Movie Queries
+    private func handleMovieQueryUpdate(_ update: Update, in context: BotContext?) throws {
+        guard
+            let clearData = update.callbackQuery?.data?.replacingOccurrences(of: "_movie", with: ""),
+            let key = MovieQueryKeys(rawValue: clearData) else {
+                throw MovieError.invalidDataQuery
+        }
+        switch key {
+        case .next:
+            try handleNextItQueryUpdate(update)
+        case .previous:
+            try handlePreviousQueryUpdate(update)
+        case .thisIsIt:
+            try handleThisIsItQueryUpdate(update)
+        case .rate:
+            try handleRatePickedQueryUpdate(update)
+        case .suggest:
+            try handleSuggestionUpdate(update)
+        }
+    }
+    
+    private func handleThisIsItQueryUpdate(_ update: Update) throws {
+        guard
+            let message = update.callbackQuery?.message,
+            let user = message.from else { return }
+        userStates[user.id]?.location.following(.rate)
+        // show rating
+        let maxStars = 5
+        let starsCount = Array(0...maxStars)
+        var keys = starsCount.map { count -> InlineKeyboardButton in
+            let starsString = (Array(repeating: "\u{2605}", count: count) + Array(repeating: "\u{2606}", count: maxStars - count)).joined()
+            return InlineKeyboardButton(text: starsString,
+                                        callbackData: "rate:\(count)_movie")
+        }
+        keys.append(InlineKeyboardButton(text: "cancel".capitalized, callbackData: "cancel".capitalized))
+        let params = Bot.EditMessageReplyMarkupParams(chatId: .chat(message.chat.id),
+                                                      messageId: message.messageId,
+                                                      replyMarkup: .init(inlineKeyboard: keys.map { [$0] }))
+        try bot.editMessageReplyMarkup(params: params)
+    }
+    
+    private func handleNextItQueryUpdate(_ update: Update) throws {
         guard let message = update.callbackQuery?.message,
             let user = update.callbackQuery?.from else { return }
-        // get current presented movie index
-        guard let presentedMovieResultIndex = userStates[user.id]?.presentedMovieResultIndex else { return }
         // get next presented movie
         guard let index = userStates[user.id]?.presentedMovieResultIndex,
             let movie = userStates[user.id]?.movieResults?[index + 1] else { return }
@@ -312,15 +382,69 @@ extension SuggestionBot
         try showMessage(for: movie, after: message, for: user, in: message.chat)
     }
     
-    private func handlePreviousQueryUpdate(_ update: Update, in context: BotContext?) throws {
+    private func handlePreviousQueryUpdate(_ update: Update) throws {
         guard let message = update.callbackQuery?.message,
             let user = update.callbackQuery?.from else { return }
-        // get current presented movie index
-        guard let presentedMovieResultIndex = userStates[user.id]?.presentedMovieResultIndex else { return }
         // get next presented movie
         guard let index = userStates[user.id]?.presentedMovieResultIndex,
             let movie = userStates[user.id]?.movieResults?[index - 1] else { return }
         userStates[user.id]?.presentedMovieResultIndex = index - 1
         try showMessage(for: movie, after: message, for: user, in: message.chat)
+    }
+    
+    // MARK: Rate Query
+    private func handleRatePickedQueryUpdate(_ update: Update) throws {
+        guard
+            let message = update.callbackQuery?.message,
+            let user = update.callbackQuery?.from,
+            let ratingString = update.callbackQuery?.data?.replacingOccurrences(of: "_movie", with: "").split(separator: ":").last,
+            let rate = Int(ratingString) else { return }
+        userStates[user.id]?.pickedRating = rate // save rate
+        
+        try showFinalizedSuggestion(replacing: message, for: user, in: .chat(message.chat.id))
+    }
+    
+    // MARK: Description Query
+    private func showFinalizedSuggestion(replacing message: Message, for user: User, in chatId: ChatId) throws {
+        guard
+            let rating = userStates[user.id]?.pickedRating,
+            let movie = userStates[user.id]?.pickedMovie else { return }
+        
+        let text = """
+        name: \(movie.name)
+        year: \(movie.year)
+        rate: \(rating)
+        """
+        let markup = InlineKeyboardMarkup(inlineKeyboard: [[InlineKeyboardButton.init(text: "Suggest", callbackData: "suggest_movie")],
+                                                           [InlineKeyboardButton(text: "cancel".capitalized, callbackData: "cancel")]])
+        let media = InputMedia.inputMediaPhoto(.init(type: "photo", media: movie.poster, caption: text))
+        let params = Bot.EditMessageMediaParams(chatId: chatId,
+                                                messageId: message.messageId,
+                                                media: media,
+                                                replyMarkup: markup)
+        try bot.editMessageMedia(params: params)
+    }
+    
+    private func handleSuggestionUpdate(_ update: Update) throws {
+        guard
+            let message = update.callbackQuery?.message,
+            let user = update.callbackQuery?.from,
+            let rating = userStates[user.id]?.pickedRating,
+            let movie = userStates[user.id]?.pickedMovie else { return }
+        
+        let text = """
+        name: \(movie.name)
+        year: \(movie.year)
+        rate: \(Array(repeating: "\u{2605}", count: rating))
+        """
+        let photoParams = Bot.SendPhotoParams(chatId: .chat(-1001254557120),
+                                              photo: .url(movie.poster),
+                                              caption: text)
+        try bot.sendPhoto(params: photoParams)
+        try bot.editMessageMedia(params: .init(chatId: .chat(message.chat.id),
+                                               messageId: message.messageId,
+                                               media: InputMedia.inputMediaPhoto(.init(type: "photo",
+                                                                                       media: movie.poster,
+                                                                                       caption: "movie suggested!".capitalized))))
     }
 }
