@@ -1,1 +1,1 @@
-web: Run server --env production --port $PORT --hostname 0.0.0.0
+web: Run --env production --workdir=./ --port $PORT
