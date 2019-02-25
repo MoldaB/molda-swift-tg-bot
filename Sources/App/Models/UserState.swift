@@ -12,21 +12,39 @@ final class UserState
     let id: Int64
     var movieResults: [MovieResult]?
     var presentedMovieResultIndex: Int?
-    var location: Location
+    var location: Path
     var chatId: Int64
+    var pickedRating: Int?
+    
+    var pickedMovie: MovieResult? {
+        if let index = presentedMovieResultIndex {
+            return movieResults?[index]
+        }
+        return nil
+    }
     
     init(id: Int64, chatId: Int64, movieResults: [MovieResult]? = nil, location: Location = .initial) {
         self.id = id
         self.chatId = chatId
         self.movieResults = movieResults
-        self.location = location
+        self.location = [location]
     }
 }
 
 extension UserState
 {
+    typealias Path = [Location]
+    
     enum Location
     {
-        case initial, movie
+        case initial, movie, series, recipes, music
+        case name, rate, description, url
+    }
+}
+
+extension Array where Element == UserState.Location
+{
+    mutating func following(_ location: UserState.Location) {
+        self.append(location)
     }
 }
