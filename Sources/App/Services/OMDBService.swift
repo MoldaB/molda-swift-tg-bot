@@ -33,7 +33,7 @@ final class OMDBService
         URLSession.shared.dataTask(with: urlPath) { (data, response, error) in
             defer {
                 if let error = error {
-                    NSLog("ERROR - ", error.localizedDescription)
+                    NSLog("ERROR - \(error)")
                 }
             }
             guard let responseData = data else {
