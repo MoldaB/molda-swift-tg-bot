@@ -15,7 +15,7 @@ public func configure(_ config: inout Config, _ env: inout Environment, _ servic
     services.register(SuggestionBot.self)
     
     ///Registering vapor routes
-    let router = EngineRouter.default()
-    try routes(router)
-    services.register(router, as: Router.self)
+//    let router = EngineRouter.default()
+//    try routes(router)
+//    services.register(router, as: Router.self)
 }
