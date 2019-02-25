@@ -435,7 +435,9 @@ extension SuggestionBot
         let text = """
         name: \(movie.name)
         year: \(movie.year)
-        rate: \(Array(repeating: "\u{2605}", count: rating))
+        rate: \(Array(repeating: "\u{2605}", count: rating).joined())
+        
+        suggester: @\(user.username ?? "")
         """
         let photoParams = Bot.SendPhotoParams(chatId: .chat(-1001254557120),
                                               photo: .url(movie.poster),
@@ -446,5 +448,7 @@ extension SuggestionBot
                                                media: InputMedia.inputMediaPhoto(.init(type: "photo",
                                                                                        media: movie.poster,
                                                                                        caption: "movie suggested!".capitalized))))
+        userStates[user.id] = UserState(id: user.id, chatId: message.chat.id)
+        try sendStartupMessage(in: .chat(message.chat.id))
     }
 }
