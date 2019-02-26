@@ -16,12 +16,14 @@ final class UserState
     var chatId: Int64
     var pickedRating: Int?
     
-    var pickedMovie: MovieResult? {
+    var presentedMovie: MovieResult? {
         if let index = presentedMovieResultIndex {
             return movieResults?[index]
         }
         return nil
     }
+    
+    var pickedMovie: MovieInfo?
     
     init(id: Int64, chatId: Int64, movieResults: [MovieResult]? = nil, location: Location = .initial) {
         self.id = id

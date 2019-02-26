@@ -32,10 +32,17 @@ final class SuggestionBot: ServiceType {
     
     /// Dictionary for user echo modes
     lazy var userStates = [Int64: UserState]()
+    let omdbClient = OMDBService()
     
     ///Conformance to `ServiceType` protocol, fabric methhod
     static func makeService(for worker: Container) throws -> SuggestionBot {
-        let token = "620164226:AAEonLqwAWZUVR3M44QsZJAXvd34XUJvbXc"
+        var token: String {
+//            #if DEV
+            return "732477711:AAHjjyRejej-u5cfbp_fk0rp153egMgLfjA"
+//            #else
+//            return "620164226:AAEonLqwAWZUVR3M44QsZJAXvd34XUJvbXc"
+//            #endif
+        }
         
         let settings = Bot.Settings(token: token, debugMode: true)
         
@@ -160,7 +167,14 @@ extension SuggestionBot {
     /// - Throws: if message fails to be sent
     private func sendStartupMessage(in chatId: ChatId) throws {
         let params = Bot.SendMessageParams(chatId: chatId,
-                                           text: "Try new commands\n/movie for suggesting movies,\n/series for suggesting searies,\n/recipes for suggesting food,\n/music for suggesting a new song\nenjoy.")
+                                           text: """
+                                            Try new commands
+                                            /movie {movie name} for suggesting movies,
+                                            /series for suggesting searies,
+                                            /recipes for suggesting food,
+                                            /music for suggesting a new song
+                                            enjoy.
+                                            """)
         try bot.sendMessage(params: params)
     }
 }
@@ -180,17 +194,16 @@ extension SuggestionBot
     func handleMovieCommand(for movie: String, with message: Message, for user: User, in context: BotContext?) throws {
         // setup callback handlers
         setupMovieCallbacksHandler()
-        // check that data was inputed
-        let omdbClient = OMDBService()
-        omdbClient.searchMovie(name: movie) {
-            (movies, error) in
-            defer {
+        omdbClient.searchMovie(name: movie) { response in
+            switch response {
+            case .failure(let error):
                 if let error = error {
                     Logger.omdb.log(error: error, result: "", for: String(user.id))
                 }
+                break
+            case .success(let movies):
+                self.handleMovieResults(movies, for: user, in: message.chat)
             }
-            guard let results = movies else { return }
-            self.handleMovieResults(results, for: user, in: message.chat)
         }
     }
     
@@ -353,21 +366,27 @@ extension SuggestionBot
     private func handleThisIsItQueryUpdate(_ update: Update) throws {
         guard
             let message = update.callbackQuery?.message,
-            let user = message.from else { return }
+            let user = update.callbackQuery?.from,
+            let movie = userStates[user.id]?.presentedMovie else { return }
         userStates[user.id]?.location.following(.rate)
-        // show rating
-        let maxStars = 5
-        let starsCount = Array(0...maxStars)
-        var keys = starsCount.map { count -> InlineKeyboardButton in
-            let starsString = (Array(repeating: "\u{2605}", count: count) + Array(repeating: "\u{2606}", count: maxStars - count)).joined()
-            return InlineKeyboardButton(text: starsString,
-                                        callbackData: "rate:\(count)_movie")
+        
+        omdbClient.getInformation(for: movie.id) { response in
+            switch response {
+            case .failure(let error):
+                if let error = error {
+                Logger.omdb.log(error: error, result: "failed to get movie info", for: String(user.id))
+                }
+                break
+            case .success(let info):
+                self.userStates[user.id]?.pickedMovie = info
+                do {
+                    try self.showRatingMessage(replacing: message)
+                } catch {
+                    Logger.general.log(error: error, result: "failed to show rating message", for: String(user.id))
+                }
+                break
+            }
         }
-        keys.append(InlineKeyboardButton(text: "cancel".capitalized, callbackData: "cancel".capitalized))
-        let params = Bot.EditMessageReplyMarkupParams(chatId: .chat(message.chat.id),
-                                                      messageId: message.messageId,
-                                                      replyMarkup: .init(inlineKeyboard: keys.map { [$0] }))
-        try bot.editMessageReplyMarkup(params: params)
     }
     
     private func handleNextItQueryUpdate(_ update: Update) throws {
@@ -391,6 +410,21 @@ extension SuggestionBot
     }
     
     // MARK: Rate Query
+    private func showRatingMessage(replacing message: Message) throws {
+        // show rating
+        let maxStars = 5
+        let starsCount = Array(0...maxStars)
+        var keys = starsCount.map { count -> InlineKeyboardButton in
+            let starsString = (Array(repeating: "\u{2605}", count: count) + Array(repeating: "\u{2606}", count: maxStars - count)).joined()
+            return InlineKeyboardButton(text: starsString,
+                                        callbackData: "rate:\(count)_movie")
+        }
+        keys.append(InlineKeyboardButton(text: "cancel".capitalized, callbackData: "cancel".capitalized))
+        let params = Bot.EditMessageReplyMarkupParams(chatId: .chat(message.chat.id),
+                                                      messageId: message.messageId,
+                                                      replyMarkup: .init(inlineKeyboard: keys.map { [$0] }))
+        try bot.editMessageReplyMarkup(params: params)
+    }
     private func handleRatePickedQueryUpdate(_ update: Update) throws {
         guard
             let message = update.callbackQuery?.message,
@@ -409,9 +443,8 @@ extension SuggestionBot
             let movie = userStates[user.id]?.pickedMovie else { return }
         
         let text = """
-        name: \(movie.name)
-        year: \(movie.year)
-        rate: \(rating)
+        \(movie.description)
+        rate: \((Array(repeating: "\u{2605}", count: rating) + Array(repeating: "\u{2606}", count: 5 - rating)).joined())
         """
         let markup = InlineKeyboardMarkup(inlineKeyboard: [[InlineKeyboardButton.init(text: "Suggest", callbackData: "suggest_movie")],
                                                            [InlineKeyboardButton(text: "cancel".capitalized, callbackData: "cancel")]])
@@ -431,9 +464,8 @@ extension SuggestionBot
             let movie = userStates[user.id]?.pickedMovie else { return }
         
         let text = """
-        name: \(movie.name)
-        year: \(movie.year)
-        rate: \(Array(repeating: "\u{2605}", count: rating).joined())
+        \(movie.description)
+        rate: \((Array(repeating: "\u{2605}", count: rating) + Array(repeating: "\u{2606}", count: 5 - rating)).joined())
         
         suggester: @\(user.username ?? "")
         """
