@@ -6,7 +6,13 @@
 //
 
 
-typealias NetworkResponseHandler<T> = (_ data: T?, _ error: Error?) -> ()
+enum NetworkResponse<ResponseType>
+{
+    case success(_ data: ResponseType)
+    case failure(_ error: Error?)
+}
+
+typealias NetworkResponseHandler<T> = (NetworkResponse<T>) -> ()
 
 import Foundation
 
