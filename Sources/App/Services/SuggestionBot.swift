@@ -35,9 +35,7 @@ final class SuggestionBot: ServiceType {
     
     ///Conformance to `ServiceType` protocol, fabric methhod
     static func makeService(for worker: Container) throws -> SuggestionBot {
-        guard let token = "620164226:AAEonLqwAWZUVR3M44QsZJAXvd34XUJvbXc" else { //Environment.get("TELEGRAM_BOT_TOKEN")
-            throw CoreError(identifier: "Enviroment variables", reason: "Cannot find telegram bot token")
-        }
+        let token = "620164226:AAEonLqwAWZUVR3M44QsZJAXvd34XUJvbXc"
         
         let settings = Bot.Settings(token: token, debugMode: true)
         
