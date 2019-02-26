@@ -1,1 +1,1 @@
-web: Run --env production --workdir=./ --port $PORT
+web: Run --env=production --workdir=./
