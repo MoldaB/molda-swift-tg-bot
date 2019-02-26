@@ -10,24 +10,24 @@ import Foundation
 final class OMDBService
 {
     private let queue = DispatchQueue(label: "omdb-queue", qos: .background)
-    private let endPoint = "http://www.omdbapi.com/?apikey=fd7988cb"
-    private var API_KEY: String { return "fd7988cb" }
-    init() {
-        
-    }
-    
-    func searchMovie(name: String, handler: @escaping NetworkResponseHandler<[MovieResult]>) {
-        
+    private var endPointComponents: URLComponents {
         var urlComponents = URLComponents()
         urlComponents.scheme = "http"
         urlComponents.host = "www.omdbapi.com"
         urlComponents.path = "/"
-        // add params
+        return urlComponents
+    }
+    private var API_KEY: String { return "fd7988cb" }
+    init() {}
+    
+    func searchMovie(name: String, handler: @escaping NetworkResponseHandler<[MovieResult]>) {
+        var endPoint = endPointComponents
         let movieNameQuery = URLQueryItem(name: "s", value: name)
         let apiKeyQuery = URLQueryItem(name: "apikey", value: API_KEY)
-        urlComponents.queryItems = [movieNameQuery, apiKeyQuery] as [URLQueryItem]
+        endPoint.queryItems = [movieNameQuery, apiKeyQuery] as [URLQueryItem]
 
-        guard let urlPath = urlComponents.url else {
+        guard let urlPath = endPoint.url else {
+            handler(.failure(nil))
             return
         }
         URLSession.shared.dataTask(with: urlPath) { (data, response, error) in
@@ -37,18 +37,50 @@ final class OMDBService
                 }
             }
             guard let responseData = data else {
-                handler(nil, ServiceError.dataIsNull)
+                handler(.failure(ServiceError.dataIsNull))
                 return
             }
             do {
                 let decoder = JSONDecoder()
                 let searchResult = try decoder.decode(SearchResponse<MovieResult>.self, from: responseData)
                 let movies = searchResult.search
-                handler(movies, nil)
+                handler(.success(movies))
             } catch {
-                handler(nil, ServiceError.parsing(error: error))
+                handler(.failure(ServiceError.parsing(error: error)))
             }
         }.resume()
+    }
+    
+    func getInformation(for movieId: String, handler: @escaping NetworkResponseHandler<MovieInfo>) {
+        var endPoint = endPointComponents
+        endPoint.queryItems = [
+            URLQueryItem(name: "i", value: movieId),
+            URLQueryItem(name: "apikey", value: API_KEY)
+        ]
+        
+        guard let urlPath = endPoint.url else {
+            handler(.failure(nil))
+            return
+        }
+        URLSession.shared.dataTask(with: urlPath) { (data, response, error) in
+            defer {
+                if let error = error {
+                    NSLog("ERROR - \(error)")
+                }
+            }
+            guard let responseData = data else {
+                handler(.failure(ServiceError.dataIsNull))
+                return
+            }
+            do {
+                let decoder = JSONDecoder()
+                let movie = try decoder.decode(MovieInfo.self, from: responseData)
+                handler(.success(movie))
+            } catch {
+                handler(.failure(ServiceError.parsing(error: error)))
+            }
+            }.resume()
+        
     }
 }
 
