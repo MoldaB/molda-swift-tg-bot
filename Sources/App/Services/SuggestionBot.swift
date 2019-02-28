@@ -38,9 +38,9 @@ final class SuggestionBot: ServiceType {
     static func makeService(for worker: Container) throws -> SuggestionBot {
         var token: String {
 //            #if DEV
-            return "732477711:AAHjjyRejej-u5cfbp_fk0rp153egMgLfjA"
+//            return "732477711:AAHjjyRejej-u5cfbp_fk0rp153egMgLfjA"
 //            #else
-//            return "620164226:AAEonLqwAWZUVR3M44QsZJAXvd34XUJvbXc"
+            return "620164226:AAEonLqwAWZUVR3M44QsZJAXvd34XUJvbXc"
 //            #endif
         }
         
